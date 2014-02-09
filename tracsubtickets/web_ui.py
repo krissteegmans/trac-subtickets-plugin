@@ -35,6 +35,8 @@ from trac.ticket.model import Ticket
 from trac.resource import ResourceNotFound
 from genshi.builder import tag
 from genshi.filters import Transformer
+from trac.config import Option
+from ast import literal_eval
 
 from api import NUMBERS_RE, _
 
@@ -45,6 +47,21 @@ class SubTicketsModule(Component):
                IRequestFilter,
                ITicketManipulator,
                ITemplateStreamFilter)
+
+    sort_children = Option('subtickets', 'sort_children', "[['id', 'int']]",
+                       doc="A list of properties according which the children need to be sorted. "
+                            + "If the property is a list, the first element of the list is the name of the property. "
+                            + "If the second element is again a list, "
+                            + "the second list contains the values of the property in the order in which they should be sorted. "
+                            + "If the second element of a property which is a list is a string, it indicates the type "
+                            + "of the property. For the moment, only the type 'int' is supported. "
+                            + "If the setting is ommitted altogether, the children will be sorted according to the id. "
+                            + "e.g.: [['priority', ['low', 'middle', 'high']], 'summary', ['estimate', 'int']]")
+    show_fields = Option('subtickets', 'show_fields', 
+                         "['type', 'status', 'owner']",
+                         doc="A list of properties that have to be shown in the children list. "
+                             + "The id and the summary are always shown. "
+                             + "e.g.: ['priority', 'owner']")
 
     # ITemplateProvider methods
     def get_htdocs_dirs(self):
@@ -157,27 +174,55 @@ class SubTicketsModule(Component):
 
                 # tickets
                 def _func(children, depth=0):
-                    for id in sorted(children, key=lambda x: int(x)):
+                    def _sort(children):
+                        for sort in reversed(literal_eval(self.sort_children)):
+                            transform_key = lambda x: x
+                            if isinstance(sort, str):
+                                sort_by = sort
+                            else:
+                                assert(isinstance(sort, list))
+                                assert(isinstance(sort[0], str))
+                                sort_by = sort[0]
+                                if isinstance(sort[1], str):
+                                    assert(sort[1] == "int")
+                                    transform_key = int
+                                else:
+                                    assert(isinstance(sort[1], list))
+                                    lookup_dict = {v: k for (k, v) in enumerate(sort[1])}
+                                    def _lookup(value):
+                                        try:
+                                            return lookup_dict[value]
+                                        except KeyError:
+                                            return len(lookup_dict)
+                                    transform_key = _lookup
+
+                            if sort_by == 'id':
+                                children = sorted(children,
+                                                  key=lambda x: transform_key(Ticket(self.env, int(x)).id))
+                            else:
+                                children = sorted(children,
+                                                  key=lambda x: transform_key(Ticket(self.env, int(x))[sort_by]))
+
+                        return children
+
+                    for id in _sort(children):
                         ticket = Ticket(self.env, id)
 
+                        properties_to_show = []
                         # 1st column
                         attrs = {'href': req.href.ticket(id)}
                         if ticket['status'] == 'closed':
                             attrs['class_'] = 'closed'
                         link = tag.a('#%s' % id, **attrs)
-                        summary = tag.td(link, ': %s' % ticket['summary'],
-                            style='padding-left: %dpx;' % (depth * 15))
-                        # 2nd column
-                        type = tag.td(ticket['type'])
-                        # 3rd column
-                        status = tag.td(ticket['status'])
-                        # 4th column
-                        href = req.href.query(status='!closed',
-                                              owner=ticket['owner'])
-                        owner = tag.td(tag.a(ticket['owner'], href=href))
+                        properties_to_show.append(tag.td(link, ': %s' % ticket['summary'],
+                                                         style='padding-left: %dpx;' % (depth * 15)))
 
-                        tbody.append(tag.tr(summary, type, status, owner))
+                        for property in literal_eval(self.show_fields):
+                            properties_to_show.append(tag.td(ticket[property]))
+
+                        tbody.append(apply(tag.tr, properties_to_show))
                         _func(children[id], depth + 1)
+                        
 
                 _func(data['subtickets'])
 
