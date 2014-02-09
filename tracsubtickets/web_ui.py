@@ -62,6 +62,13 @@ class SubTicketsModule(Component):
                          doc="A list of properties that have to be shown in the children list. "
                              + "The id and the summary are always shown. "
                              + "e.g.: ['priority', 'owner']")
+    show_accumulations = Option('subtickets', 'show_accumulations',
+                                "[]",
+                                doc = "A list of properties that have to be accumulated in the ticket view. "
+                                      + "Every element in the list should be a list again, "
+                                      + "consisting of the name of the property, the label it should have when shown, "
+                                      + "and the way it should be accumulated (currently only 'sum' is supported."
+                                      + "e.g.: [['estimate', 'Total Estimate', 'sum']]")
 
     # ITemplateProvider methods
     def get_htdocs_dirs(self):
@@ -229,6 +236,35 @@ class SubTicketsModule(Component):
             if div:
                 add_stylesheet(req, 'subtickets/css/subtickets.css')
                 stream |= Transformer('.//div[@id="ticket"]').append(div)
+
+            div_accumulations = None
+            accumulations = literal_eval(self.show_accumulations)
+            if 'subtickets' in data and accumulations:
+                def _accumulate(children, field, method):
+                    assert(method == 'sum')
+                    result = 0
+                    for id in children:
+                        ticket = Ticket(self.env, id)
+                        try:
+                            result += int(ticket[field])
+                        except ValueError:
+                            pass
+                        result += _accumulate(children[id], field, method)
+                    return result
+
+                div_accumulations = tag.div(class_='description')
+                
+                tbody = tag.tbody()
+                div_accumulations(tag.table(tbody, class_='properties'))
+
+                for accumulation in accumulations:
+                    tbody.append(tag.tr(tag.td(accumulation[1]), 
+                                        tag.td(_accumulate(data['subtickets'],
+                                                           accumulation[0],
+                                                           accumulation[2]))))
+
+            if div_accumulations:
+                stream |= Transformer('.//div[@id="ticket"]').append(div_accumulations)
 
         return stream
 
