@@ -54,9 +54,9 @@ class SubTicketsModule(Component):
                             + "If the second element is again a list, "
                             + "the second list contains the values of the property in the order in which they should be sorted. "
                             + "If the second element of a property which is a list is a string, it indicates the type "
-                            + "of the property. For the moment, only the type 'int' is supported. "
+                            + "of the property. For the moment, only the types 'int' and 'float' are supported. "
                             + "If the setting is ommitted altogether, the children will be sorted according to the id. "
-                            + "e.g.: [['priority', ['low', 'middle', 'high']], 'summary', ['estimate', 'int']]")
+                            + "e.g.: [['priority', ['low', 'middle', 'high']], 'summary', ['estimate', 'float']]")
     show_fields = Option('subtickets', 'show_fields', 
                          "['type', 'status', 'owner']",
                          doc="A list of properties that have to be shown in the children list. "
@@ -67,7 +67,8 @@ class SubTicketsModule(Component):
                                 doc = "A list of properties that have to be accumulated in the ticket view. "
                                       + "Every element in the list should be a list again, "
                                       + "consisting of the name of the property, the label it should have when shown, "
-                                      + "and the way it should be accumulated (currently only 'sum' is supported."
+                                      + "and the way it should be accumulated (currently only 'sum' is supported, "
+                                      + "in which case the fields are converted to floats before being summed)."
                                       + "e.g.: [['estimate', 'Total Estimate', 'sum']]")
 
     # ITemplateProvider methods
@@ -191,8 +192,11 @@ class SubTicketsModule(Component):
                                 assert(isinstance(sort[0], str))
                                 sort_by = sort[0]
                                 if isinstance(sort[1], str):
-                                    assert(sort[1] == "int")
-                                    transform_key = int
+                                    if sort[1] == "int":
+                                        transform_key = int
+                                    else:
+                                        assert(sort[1] == "float")
+                                        transform_key = float
                                 else:
                                     assert(isinstance(sort[1], list))
                                     lookup_dict = {v: k for (k, v) in enumerate(sort[1])}
@@ -246,7 +250,7 @@ class SubTicketsModule(Component):
                     for id in children:
                         ticket = Ticket(self.env, id)
                         try:
-                            result += int(ticket[field])
+                            result += float(ticket[field])
                         except ValueError:
                             pass
                         result += _accumulate(children[id], field, method)
